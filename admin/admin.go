@@ -20,6 +20,7 @@ package admin
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -39,6 +40,8 @@ type Admin interface {
 	//GetBrokerClusterInfo(ctx context.Context) (*remote.RemotingCommand, error)
 	FetchPublishMessageQueues(ctx context.Context, topic string) ([]*primitive.MessageQueue, error)
 	FetchClusterList(topic string) ([]string, error)
+	QueryMessageQueueMaxOffset(mq *primitive.MessageQueue) (int64, error)
+	QueryMessageQueueMinOffset(mq *primitive.MessageQueue) (int64, error)
 	Close() error
 }
 
@@ -112,6 +115,10 @@ func NewAdmin(opts ...AdminOption) (*admin, error) {
 		return nil, fmt.Errorf("GetOrNewRocketMQClient faild")
 	}
 	defaultOpts.Namesrv = cli.GetNameSrv()
+
+	if !defaultOpts.Credentials.IsEmpty() {
+		cli.RegisterACL()
+	}
 	//log.Printf("Client: %#v", namesrv.srvs)
 	return &admin{
 		cli:  cli,
@@ -279,6 +286,100 @@ func (a *admin) FetchPublishMessageQueues(ctx context.Context, topic string) ([]
 
 func (a *admin) FetchClusterList(topic string) ([]string, error) {
 	return a.cli.GetNameSrv().FetchClusterList(topic)
+}
+
+func (a *admin) QueryMessageQueueMaxOffset(mq *primitive.MessageQueue) (int64, error) {
+	if mq == nil {
+		rlog.Error("query max offset error: messagequeue is nil", nil)
+		return -1, fmt.Errorf("messagequeue is nil")
+	}
+	brokerAddr := a.cli.GetNameSrv().FindBrokerAddrByName(mq.BrokerName)
+	if brokerAddr == "" {
+		a.cli.GetNameSrv().UpdateTopicRouteInfo(mq.Topic)
+		brokerAddr = a.cli.GetNameSrv().FindBrokerAddrByName(mq.BrokerName)
+	}
+	if brokerAddr == "" {
+		rlog.Error("the broker does not exist", map[string]interface{}{
+			"brokerName": mq.BrokerName,
+		})
+		return -1, fmt.Errorf("broker %s not found", mq.BrokerName)
+	}
+
+	request := &internal.GetMaxOffsetRequestHeader{
+		Topic:      mq.Topic,
+		QueueId:    mq.QueueId,
+		BrokerName: mq.BrokerName,
+	}
+	cmd := remote.NewRemotingCommand(internal.ReqGetMaxOffset, request, nil)
+	response, err := a.cli.InvokeSync(context.Background(), brokerAddr, cmd, 3*time.Second)
+	if err != nil {
+		rlog.Error("query max offset error", map[string]interface{}{
+			rlog.LogKeyMessageQueue:  mq,
+			rlog.LogKeyUnderlayError: err,
+		})
+		return -1, err
+	}
+	offsetStr := response.ExtFields["offset"]
+	offset, err := strconv.ParseInt(offsetStr, 10, 64)
+	if err != nil {
+		rlog.Error("parse max offset error", map[string]interface{}{
+			"offset":                 offsetStr,
+			rlog.LogKeyUnderlayError: err,
+		})
+		return -1, err
+	}
+	rlog.Info("query max offset success", map[string]interface{}{
+		rlog.LogKeyMessageQueue: mq,
+		"offset":                offset,
+	})
+	return offset, nil
+}
+
+func (a *admin) QueryMessageQueueMinOffset(mq *primitive.MessageQueue) (int64, error) {
+	if mq == nil {
+		rlog.Error("query min offset error: messagequeue is nil", nil)
+		return -1, fmt.Errorf("messagequeue is nil")
+	}
+	brokerAddr := a.cli.GetNameSrv().FindBrokerAddrByName(mq.BrokerName)
+	if brokerAddr == "" {
+		a.cli.GetNameSrv().UpdateTopicRouteInfo(mq.Topic)
+		brokerAddr = a.cli.GetNameSrv().FindBrokerAddrByName(mq.BrokerName)
+	}
+	if brokerAddr == "" {
+		rlog.Error("the broker does not exist", map[string]interface{}{
+			"brokerName": mq.BrokerName,
+		})
+		return -1, fmt.Errorf("broker %s not found", mq.BrokerName)
+	}
+
+	request := &internal.GetMaxOffsetRequestHeader{
+		Topic:      mq.Topic,
+		QueueId:    mq.QueueId,
+		BrokerName: mq.BrokerName,
+	}
+	cmd := remote.NewRemotingCommand(internal.ReqGetMinOffset, request, nil)
+	response, err := a.cli.InvokeSync(context.Background(), brokerAddr, cmd, 3*time.Second)
+	if err != nil {
+		rlog.Error("query min offset error", map[string]interface{}{
+			rlog.LogKeyMessageQueue:  mq,
+			rlog.LogKeyUnderlayError: err,
+		})
+		return -1, err
+	}
+	offsetStr := response.ExtFields["offset"]
+	offset, err := strconv.ParseInt(offsetStr, 10, 64)
+	if err != nil {
+		rlog.Error("parse min offset error", map[string]interface{}{
+			"offset":                 offsetStr,
+			rlog.LogKeyUnderlayError: err,
+		})
+		return -1, err
+	}
+	rlog.Info("query min offset success", map[string]interface{}{
+		rlog.LogKeyMessageQueue: mq,
+		"offset":                offset,
+	})
+	return offset, nil
 }
 
 func (a *admin) Close() error {

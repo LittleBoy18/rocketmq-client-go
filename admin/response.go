@@ -24,6 +24,13 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+const (
+	// 成功
+	SUCCESS = 0
+	// Consumer不在线
+	CONSUMER_NOT_ONLINE = 206
+)
+
 type RemotingSerializable struct {
 }
 
@@ -145,4 +152,27 @@ func (info *BrokerClusterInfo) Decode(data []byte, classOfT interface{}) (interf
 	})
 
 	return info, nil
+}
+
+type ConsumerConnection struct {
+	ConnectionSet     []*Connection                `json:"connectionSet"`
+	SubscriptionTable map[string]*SubscriptionData `json:"subscriptionTable"`
+	ConsumeType       string                       `json:"consumeType"`
+	MessageModel      string                       `json:"messageModel"`
+	ConsumeFromWhere  string                       `json:"consumeFromWhere"`
+	//subscriptionTableLock sync.RWMutex                 `json:"-"`
+}
+type Connection struct {
+	ClientId   string `json:"clientId"`
+	ClientAddr string `json:"clientAddr"`
+	Language   string `json:"language"`
+	Version    int    `json:"version"`
+}
+type SubscriptionData struct {
+	Topic           string   `json:"topic"`
+	SubString       string   `json:"subString"`
+	ClassFilterMode bool     `json:"classFilterMode"`
+	TagsSet         []string `json:"tagsSet"`
+	CodeSet         []int    `json:"codeSet"`
+	SubVersion      int64    `json:"subVersion"`
 }

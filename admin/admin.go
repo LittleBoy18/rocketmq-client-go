@@ -19,6 +19,8 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -42,6 +44,7 @@ type Admin interface {
 	FetchClusterList(topic string) ([]string, error)
 	QueryMessageQueueMaxOffset(mq *primitive.MessageQueue) (int64, error)
 	QueryMessageQueueMinOffset(mq *primitive.MessageQueue) (int64, error)
+	GetConsumerConnectionList(ctx context.Context, brokerAddr, group string, timeoutMillis time.Duration) (*ConsumerConnection, error)
 	Close() error
 }
 
@@ -128,7 +131,6 @@ func NewAdmin(opts ...AdminOption) (*admin, error) {
 
 func (a *admin) GetAllSubscriptionGroup(ctx context.Context, brokerAddr string, timeoutMillis time.Duration) (*SubscriptionGroupWrapper, error) {
 	cmd := remote.NewRemotingCommand(internal.ReqGetAllSubscriptionGroupConfig, nil, nil)
-	a.cli.RegisterACL()
 	response, err := a.cli.InvokeSync(ctx, brokerAddr, cmd, timeoutMillis)
 	if err != nil {
 		rlog.Error("Get all group list error", map[string]interface{}{
@@ -147,6 +149,37 @@ func (a *admin) GetAllSubscriptionGroup(ctx context.Context, brokerAddr string, 
 		return nil, err
 	}
 	return &subscriptionGroupWrapper, nil
+}
+
+func (a *admin) GetConsumerConnectionList(ctx context.Context, brokerAddr, group string, timeoutMillis time.Duration) (*ConsumerConnection, error) {
+	requestHeader := &internal.GetConsumerConnectionListRequestHeader{
+		ConsumerGroup: group,
+	}
+	cmd := remote.NewRemotingCommand(internal.ReqGetConsumerConnectionList, requestHeader, nil)
+	response, err := a.cli.InvokeSync(ctx, brokerAddr, cmd, timeoutMillis)
+	if err != nil {
+		rlog.Error("Get ConsumerConnection list error", map[string]interface{}{
+			rlog.LogKeyUnderlayError: err,
+		})
+		return nil, err
+	} else {
+		rlog.Info("GetConsumerConnection list success", map[string]interface{}{})
+	}
+	if response.Code == CONSUMER_NOT_ONLINE {
+		rlog.Info("no consumer client online", map[string]interface{}{
+			rlog.LogKeyConsumerGroup: group,
+		})
+		return &ConsumerConnection{}, nil
+	}
+	if response.Code == SUCCESS {
+		consumerConnection := new(ConsumerConnection)
+		err = json.Unmarshal(response.Body, consumerConnection)
+		if err != nil {
+			return nil, err
+		}
+		return consumerConnection, nil
+	}
+	return nil, errors.New(fmt.Sprintf("get consume connection from brokerServer error[code:%d,group:%s]", response.Code, group))
 }
 
 func (a *admin) FetchAllTopicList(ctx context.Context) (*TopicList, error) {

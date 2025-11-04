@@ -46,6 +46,7 @@ const (
 	ReqCheckTransactionState         = int16(39)
 	ReqNotifyConsumerIdsChanged      = int16(40)
 	ReqGetAllSubscriptionGroupConfig = int16(201)
+	ReqGetConsumerConnectionList     = int16(203)
 	ReqGetAllTopicListFromNameServer = int16(206)
 	ReqDeleteTopicInBroker           = int16(215)
 	ReqDeleteTopicInNameSrv          = int16(216)
@@ -632,5 +633,15 @@ func (request *ReplyMessageRequestHeader) Decode(properties map[string]string) {
 
 	if v, existed := properties["storeTimestamp"]; existed {
 		request.storeTimestamp, _ = strconv.ParseInt(v, 10, 0)
+	}
+}
+
+type GetConsumerConnectionListRequestHeader struct {
+	ConsumerGroup string `json:"consumerGroup"`
+}
+
+func (request *GetConsumerConnectionListRequestHeader) Encode() map[string]string {
+	return map[string]string{
+		"consumerGroup": request.ConsumerGroup,
 	}
 }

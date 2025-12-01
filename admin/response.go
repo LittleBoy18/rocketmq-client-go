@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"regexp"
 
+	"github.com/apache/rocketmq-client-go/v2/internal"
 	"github.com/tidwall/gjson"
 )
 
@@ -175,4 +176,62 @@ type SubscriptionData struct {
 	TagsSet         []string `json:"tagsSet"`
 	CodeSet         []int    `json:"codeSet"`
 	SubVersion      int64    `json:"subVersion"`
+}
+
+type SyncStateSet struct {
+	SyncStateSet []string `json:"syncStateSet"`
+	RemotingSerializable
+}
+
+func (info *SyncStateSet) Decode(data []byte, classOfT interface{}) (interface{}, error) {
+	res := gjson.ParseBytes(data)
+	info.SyncStateSet = make([]string, 0)
+
+	// 尝试解析 syncStateSet 字段
+	res.Get("syncStateSet").ForEach(func(_, v gjson.Result) bool {
+		info.SyncStateSet = append(info.SyncStateSet, v.String())
+		return true
+	})
+
+	// 如果没有找到 syncStateSet，尝试直接解析为数组
+	if len(info.SyncStateSet) == 0 {
+		res.ForEach(func(_, v gjson.Result) bool {
+			info.SyncStateSet = append(info.SyncStateSet, v.String())
+			return true
+		})
+	}
+
+	return info, nil
+}
+
+type GetReplicaInfoResult struct {
+	Header   *internal.GetReplicaInfoResponseHeader
+	StateSet *SyncStateSet
+}
+
+type ControllerMetadataInfo struct {
+	ControllerAddress string            `json:"controllerAddress"`
+	ClusterName       string            `json:"clusterName"`
+	BrokerName        string            `json:"brokerName"`
+	BrokerId          int64             `json:"brokerId"`
+	BrokerAddrs       map[string]string `json:"brokerAddrs"`
+	RemotingSerializable
+}
+
+func (info *ControllerMetadataInfo) Decode(data []byte, classOfT interface{}) (interface{}, error) {
+	res := gjson.ParseBytes(data)
+
+	info.ControllerAddress = res.Get("controllerAddress").String()
+	info.ClusterName = res.Get("clusterName").String()
+	info.BrokerName = res.Get("brokerName").String()
+	info.BrokerId = res.Get("brokerId").Int()
+
+	// 解析 brokerAddrs
+	info.BrokerAddrs = make(map[string]string)
+	res.Get("brokerAddrs").ForEach(func(k, v gjson.Result) bool {
+		info.BrokerAddrs[k.String()] = v.String()
+		return true
+	})
+
+	return info, nil
 }

@@ -40,6 +40,8 @@ type Admin interface {
 	GetAllSubscriptionGroup(ctx context.Context, brokerAddr string, timeoutMillis time.Duration) (*SubscriptionGroupWrapper, error)
 	FetchAllTopicList(ctx context.Context) (*TopicList, error)
 	GetBrokerClusterInfo(ctx context.Context) (*BrokerClusterInfo, error)
+	GetControllerMetadataInfo(ctx context.Context, controllerAddress string) (*internal.GetMetaDataResponseHeader, error)
+	GetReplicaInfo(ctx context.Context, controllerAddress, brokerName string) (*GetReplicaInfoResult, error)
 	FetchPublishMessageQueues(ctx context.Context, topic string) ([]*primitive.MessageQueue, error)
 	FetchClusterList(topic string) ([]string, error)
 	QueryMessageQueueMaxOffset(mq *primitive.MessageQueue) (int64, error)
@@ -222,6 +224,89 @@ func (a *admin) GetBrokerClusterInfo(ctx context.Context) (*BrokerClusterInfo, e
 		return nil, err
 	}
 	return &clusterInfo, nil
+}
+
+func (a *admin) GetControllerMetadataInfo(ctx context.Context, controllerAddress string) (*internal.GetMetaDataResponseHeader, error) {
+	cmd := remote.NewRemotingCommand(internal.ReqGetControllerMetadataInfo, nil, nil)
+	response, err := a.cli.InvokeSync(ctx, controllerAddress, cmd, 3*time.Second)
+	if err != nil {
+		rlog.Error("Get controller metadata info error", map[string]interface{}{
+			rlog.LogKeyUnderlayError: err,
+			"controllerAddress":      controllerAddress,
+			"requestCode":            internal.ReqGetControllerMetadataInfo,
+		})
+		return nil, err
+	}
+
+	if response.Code != SUCCESS {
+		rlog.Error("Get controller metadata info failed", map[string]interface{}{
+			"controllerAddress": controllerAddress,
+			"responseCode":      response.Code,
+			"remark":            response.Remark,
+			"requestCode":       internal.ReqGetControllerMetadataInfo,
+		})
+		return nil, errors.New(fmt.Sprintf("Get controller metadata info failed: code=%d, remark=%s", response.Code, response.Remark))
+	}
+
+	// 从响应头 ExtFields 解码 GetMetaDataResponseHeader
+	responseHeader := &internal.GetMetaDataResponseHeader{}
+	responseHeader.Decode(response.ExtFields)
+
+	rlog.Info("Get controller metadata info success", map[string]interface{}{
+		"controllerAddress":       controllerAddress,
+		"controllerLeaderId":      responseHeader.ControllerLeaderId,
+		"controllerLeaderAddress": responseHeader.ControllerLeaderAddress,
+		"isLeader":                responseHeader.IsLeader,
+		"group":                   responseHeader.Group,
+	})
+	return responseHeader, nil
+}
+
+func (a *admin) GetReplicaInfo(ctx context.Context, controllerAddress, brokerName string) (*GetReplicaInfoResult, error) {
+	requestHeader := &internal.GetReplicaInfoRequestHeader{
+		BrokerName: brokerName,
+	}
+	cmd := remote.NewRemotingCommand(internal.ReqGetInSyncBrokerNames, requestHeader, nil)
+	response, err := a.cli.InvokeSync(ctx, controllerAddress, cmd, 3*time.Second)
+	if err != nil {
+		rlog.Error("Get replica info error", map[string]interface{}{
+			rlog.LogKeyUnderlayError: err,
+			"controllerAddress":      controllerAddress,
+			"brokerName":             brokerName,
+		})
+		return nil, err
+	}
+
+	if response.Code != SUCCESS {
+		return nil, errors.New(fmt.Sprintf("Get replica info failed: code=%d, remark=%s", response.Code, response.Remark))
+	}
+
+	// 从响应头解码 GetReplicaInfoResponseHeader
+	responseHeader := &internal.GetReplicaInfoResponseHeader{}
+	responseHeader.Decode(response.ExtFields)
+
+	// 从响应体解码 SyncStateSet
+	var stateSet SyncStateSet
+	_, err = stateSet.Decode(response.Body, &stateSet)
+	if err != nil {
+		rlog.Error("Get replica info decode state set error", map[string]interface{}{
+			rlog.LogKeyUnderlayError: err,
+			"controllerAddress":      controllerAddress,
+			"brokerName":             brokerName,
+		})
+		return nil, err
+	}
+
+	rlog.Info("Get replica info success", map[string]interface{}{
+		"controllerAddress": controllerAddress,
+		"brokerName":        brokerName,
+		"brokerCount":       len(stateSet.SyncStateSet),
+	})
+
+	return &GetReplicaInfoResult{
+		Header:   responseHeader,
+		StateSet: &stateSet,
+	}, nil
 }
 
 // CreateTopic create topic.

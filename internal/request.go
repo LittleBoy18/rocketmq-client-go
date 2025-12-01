@@ -42,6 +42,8 @@ const (
 	ReqUnlockBatchMQ                 = int16(42)
 	ReqGetRouteInfoByTopic           = int16(105)
 	ReqGetBrokerClusterInfo          = int16(106)
+	ReqGetInSyncBrokerNames          = int16(1004)
+	ReqGetControllerMetadataInfo     = int16(1005)
 	ReqSendBatchMessage              = int16(320)
 	ReqCheckTransactionState         = int16(39)
 	ReqNotifyConsumerIdsChanged      = int16(40)
@@ -643,5 +645,64 @@ type GetConsumerConnectionListRequestHeader struct {
 func (request *GetConsumerConnectionListRequestHeader) Encode() map[string]string {
 	return map[string]string{
 		"consumerGroup": request.ConsumerGroup,
+	}
+}
+
+type GetReplicaInfoRequestHeader struct {
+	BrokerName string
+}
+
+func (request *GetReplicaInfoRequestHeader) Encode() map[string]string {
+	maps := make(map[string]string)
+	maps["brokerName"] = request.BrokerName
+	return maps
+}
+
+type GetReplicaInfoResponseHeader struct {
+	BrokerName        string
+	BrokerId          int64
+	InSyncStateSet    []string
+	NotInSyncStateSet []string
+}
+
+func (header *GetReplicaInfoResponseHeader) Decode(properties map[string]string) {
+	if len(properties) == 0 {
+		return
+	}
+	if v, existed := properties["brokerName"]; existed {
+		header.BrokerName = v
+	}
+	if v, existed := properties["brokerId"]; existed {
+		header.BrokerId, _ = strconv.ParseInt(v, 10, 64)
+	}
+	// inSyncStateSet 和 notInSyncStateSet 通常在响应体中，但如果有在header中也可以解析
+}
+
+type GetMetaDataResponseHeader struct {
+	ControllerLeaderId      string
+	ControllerLeaderAddress string
+	IsLeader                bool
+	Peers                   string
+	Group                   string
+}
+
+func (header *GetMetaDataResponseHeader) Decode(properties map[string]string) {
+	if len(properties) == 0 {
+		return
+	}
+	if v, existed := properties["controllerLeaderId"]; existed {
+		header.ControllerLeaderId = v
+	}
+	if v, existed := properties["controllerLeaderAddress"]; existed {
+		header.ControllerLeaderAddress = v
+	}
+	if v, existed := properties["isLeader"]; existed {
+		header.IsLeader, _ = strconv.ParseBool(v)
+	}
+	if v, existed := properties["peers"]; existed {
+		header.Peers = v
+	}
+	if v, existed := properties["group"]; existed {
+		header.Group = v
 	}
 }

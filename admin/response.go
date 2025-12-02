@@ -209,6 +209,39 @@ type GetReplicaInfoResult struct {
 	StateSet *SyncStateSet
 }
 
+type BrokerReplicasInfo struct {
+	ReplicasInfoTable map[string]*ReplicaInfo `json:"replicasInfoTable"`
+	RemotingSerializable
+}
+
+type ReplicaInfo struct {
+	InSyncReplicas    []*ReplicaDetail `json:"inSyncReplicas"`
+	NotInSyncReplicas []*ReplicaDetail `json:"notInSyncReplicas"`
+	MasterAddress     string           `json:"masterAddress"`
+	MasterBrokerId    int64            `json:"masterBrokerId"`
+	MasterEpoch       int64            `json:"masterEpoch"`
+	SyncStateSetEpoch int64            `json:"syncStateSetEpoch"`
+}
+
+type ReplicaDetail struct {
+	Alive         bool   `json:"alive"`
+	BrokerAddress string `json:"brokerAddress"`
+	BrokerId      int64  `json:"brokerId"`
+	BrokerName    string `json:"brokerName"`
+}
+
+func (info *BrokerReplicasInfo) Decode(data []byte, classOfT interface{}) (interface{}, error) {
+	err := json.Unmarshal(data, info)
+	if err != nil {
+		return nil, err
+	}
+	return info, nil
+}
+
+type GetSyncStateDataResult struct {
+	BrokerReplicasInfo *BrokerReplicasInfo
+}
+
 type ControllerMetadataInfo struct {
 	ControllerAddress string            `json:"controllerAddress"`
 	ClusterName       string            `json:"clusterName"`

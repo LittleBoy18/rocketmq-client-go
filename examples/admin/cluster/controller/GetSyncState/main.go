@@ -15,11 +15,14 @@ func main() {
 		admin.WithResolver(primitive.NewPassthroughResolver(nameSrvAddr)),
 	)
 
-	result, err := testAdmin.GetReplicaInfo(context.Background(), "10.244.141.147:9878", "testmq-rocketmq-0")
+	var brokers []string
+	brokers = append(brokers, "testmq-rocketmq-0")
+
+	result, err := testAdmin.GetSyncStateData(context.Background(), "10.244.141.147:9878", brokers)
 	if err != nil {
-		fmt.Println("GetReplicaInfo error:", err.Error())
+		fmt.Println("GetSyncStateData error:", err.Error())
 	}
-	fmt.Println(result)
+	fmt.Println(result.BrokerReplicasInfo.ReplicasInfoTable["testmq-rocketmq-0"].InSyncReplicas)
 
 	err = testAdmin.Close()
 	if err != nil {

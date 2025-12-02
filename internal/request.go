@@ -42,8 +42,9 @@ const (
 	ReqUnlockBatchMQ                 = int16(42)
 	ReqGetRouteInfoByTopic           = int16(105)
 	ReqGetBrokerClusterInfo          = int16(106)
-	ReqGetInSyncBrokerNames          = int16(1004)
+	ReqGetReplicaInfo                = int16(1004)
 	ReqGetControllerMetadataInfo     = int16(1005)
+	ReqGetSyncStateData              = int16(1006)
 	ReqSendBatchMessage              = int16(320)
 	ReqCheckTransactionState         = int16(39)
 	ReqNotifyConsumerIdsChanged      = int16(40)
@@ -704,5 +705,32 @@ func (header *GetMetaDataResponseHeader) Decode(properties map[string]string) {
 	}
 	if v, existed := properties["group"]; existed {
 		header.Group = v
+	}
+}
+
+type GetSyncStateDataRequestHeader struct {
+	BrokerName string
+}
+
+func (request *GetSyncStateDataRequestHeader) Encode() map[string]string {
+	maps := make(map[string]string)
+	maps["brokerName"] = request.BrokerName
+	return maps
+}
+
+type GetSyncStateDataResponseHeader struct {
+	BrokerName string
+	BrokerId   int64
+}
+
+func (header *GetSyncStateDataResponseHeader) Decode(properties map[string]string) {
+	if len(properties) == 0 {
+		return
+	}
+	if v, existed := properties["brokerName"]; existed {
+		header.BrokerName = v
+	}
+	if v, existed := properties["brokerId"]; existed {
+		header.BrokerId, _ = strconv.ParseInt(v, 10, 64)
 	}
 }

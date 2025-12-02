@@ -42,6 +42,7 @@ type Admin interface {
 	GetBrokerClusterInfo(ctx context.Context) (*BrokerClusterInfo, error)
 	GetControllerMetadataInfo(ctx context.Context, controllerAddress string) (*internal.GetMetaDataResponseHeader, error)
 	GetReplicaInfo(ctx context.Context, controllerAddress, brokerName string) (*GetReplicaInfoResult, error)
+	GetSyncStateData(ctx context.Context, controllerAddress string, brokers []string) (*GetSyncStateDataResult, error)
 	FetchPublishMessageQueues(ctx context.Context, topic string) ([]*primitive.MessageQueue, error)
 	FetchClusterList(topic string) ([]string, error)
 	QueryMessageQueueMaxOffset(mq *primitive.MessageQueue) (int64, error)
@@ -266,7 +267,7 @@ func (a *admin) GetReplicaInfo(ctx context.Context, controllerAddress, brokerNam
 	requestHeader := &internal.GetReplicaInfoRequestHeader{
 		BrokerName: brokerName,
 	}
-	cmd := remote.NewRemotingCommand(internal.ReqGetInSyncBrokerNames, requestHeader, nil)
+	cmd := remote.NewRemotingCommand(internal.ReqGetReplicaInfo, requestHeader, nil)
 	response, err := a.cli.InvokeSync(ctx, controllerAddress, cmd, 3*time.Second)
 	if err != nil {
 		rlog.Error("Get replica info error", map[string]interface{}{
@@ -306,6 +307,76 @@ func (a *admin) GetReplicaInfo(ctx context.Context, controllerAddress, brokerNam
 	return &GetReplicaInfoResult{
 		Header:   responseHeader,
 		StateSet: &stateSet,
+	}, nil
+}
+
+func (a *admin) GetSyncStateData(ctx context.Context, controllerAddress string, brokers []string) (*GetSyncStateDataResult, error) {
+	// 获取 controller leader 地址
+	controllerMetaData, err := a.GetControllerMetadataInfo(ctx, controllerAddress)
+	if err != nil {
+		rlog.Error("Get controller metadata info error", map[string]interface{}{
+			rlog.LogKeyUnderlayError: err,
+			"controllerAddress":      controllerAddress,
+		})
+		return nil, err
+	}
+
+	if controllerMetaData == nil || controllerMetaData.ControllerLeaderAddress == "" {
+		return nil, errors.New("controller leader address is empty")
+	}
+
+	leaderAddress := controllerMetaData.ControllerLeaderAddress
+
+	// 将 brokers 列表序列化到请求体中
+	var serializable RemotingSerializable
+	body, err := serializable.Encode(brokers)
+	if err != nil {
+		rlog.Error("Encode brokers error", map[string]interface{}{
+			rlog.LogKeyUnderlayError: err,
+			"brokers":                brokers,
+		})
+		return nil, err
+	}
+
+	// 请求头为 nil，请求体包含 brokers 列表
+	cmd := remote.NewRemotingCommand(internal.ReqGetSyncStateData, nil, body)
+	response, err := a.cli.InvokeSync(ctx, leaderAddress, cmd, 3*time.Second)
+	if err != nil {
+		rlog.Error("Get sync state data error", map[string]interface{}{
+			rlog.LogKeyUnderlayError: err,
+			"controllerAddress":      controllerAddress,
+			"leaderAddress":          leaderAddress,
+			"brokers":                brokers,
+		})
+		return nil, err
+	}
+
+	if response.Code != SUCCESS {
+		return nil, errors.New(fmt.Sprintf("Get sync state data failed: code=%d, remark=%s", response.Code, response.Remark))
+	}
+
+	// 从响应体解码 BrokerReplicasInfo
+	var replicasInfo BrokerReplicasInfo
+	_, err = replicasInfo.Decode(response.Body, &replicasInfo)
+	if err != nil {
+		rlog.Error("Get sync state data decode error", map[string]interface{}{
+			rlog.LogKeyUnderlayError: err,
+			"controllerAddress":      controllerAddress,
+			"leaderAddress":          leaderAddress,
+			"brokers":                brokers,
+		})
+		return nil, err
+	}
+
+	rlog.Info("Get sync state data success", map[string]interface{}{
+		"controllerAddress":  controllerAddress,
+		"leaderAddress":      leaderAddress,
+		"brokers":            brokers,
+		"inSyncReplicaCount": len(replicasInfo.ReplicasInfoTable),
+	})
+
+	return &GetSyncStateDataResult{
+		BrokerReplicasInfo: &replicasInfo,
 	}, nil
 }
 
